@@ -1,8 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![cfg_attr(not(feature = "std"), no_main)] // Ensure this line is present
+#![cfg_attr(not(feature = "std"), no_main)] 
 
-use ink::prelude::string::String; // Import String from ink's prelude
-use ink::storage::Mapping; // Import Mapping from ink's storage
+use ink::prelude::string::String; 
+use ink::storage::Mapping; 
 
 #[ink::contract]
 pub mod cookiechain {
@@ -44,7 +44,7 @@ pub mod cookiechain {
             path: String,
             value: String,
         ) {
-            let index = self.cookies_count; // Use current count as index
+            let index = self.cookies_count; 
             let cookie = Cookie {
                 profile,
                 domain,
@@ -70,7 +70,6 @@ pub mod cookiechain {
             path: String,
             value: String,
         ) {
-            // Check if the cookie exists before updating
             if self.cookies.contains_key(&index) {
                 let cookie = Cookie {
                     profile,
@@ -83,7 +82,6 @@ pub mod cookiechain {
                 };
                 self.cookies.insert(index, &cookie);
             } else {
-                // Handle the error (e.g., log, revert, etc.)
                 panic!("Cookie index does not exist.");
             }
         }
