@@ -1,0 +1,32 @@
+[package]
+name = "cookiechain"
+version = "0.1.0"
+authors = ["[your_name] <[your_email]>"]
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"  # Updated path to lib.rs
+
+[dependencies]
+# Latest version of Ink! framework
+ink = { version = "4.3.0", default-features = false }
+
+# Scale codec for serialization
+scale = { package = "parity-scale-codec", version = "3", default-features = false, features = ["derive"] }
+scale-info = { version = "2.9", default-features = false, features = ["derive"], optional = true }
+
+[dev-dependencies]
+# E2E testing framework for Ink! smart contracts
+ink_e2e = "4.3.0"
+
+[features]
+default = ["std"]
+std = [
+    "ink/std",
+    "scale/std",
+    "scale-info/std",
+]
+# Optional features for additional functionality
+ink-as-dependency = []
+e2e-tests = []
+

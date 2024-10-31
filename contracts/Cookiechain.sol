@@ -3,7 +3,7 @@ pragma solidity ^0.5.16;
 contract Cookiechain {
 
   uint public cookiesCount = 0;
-  mapping(uint => Cookie) public cookies;
+  mapping(uint => Cookie) public cookies;  
 
 
   struct Cookie {
