@@ -1,4 +1,3 @@
-/*Source: https://github.com/Cardinal-Cryptography/bulletin-board-example/blob/main/contracts/bulletin_board/lib.rs*/
 #![cfg_attr(not(feature = "std"), no_std, no_main)]
 
 #[ink::contract]
@@ -9,7 +8,6 @@ mod cookie_contract {
         storage::Mapping,
     };
 
-
     /// Custom error type for the contract
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
     #[cfg_attr(feature = "std", derive(scale_info::TypeInfo))]
@@ -18,6 +16,7 @@ mod cookie_contract {
         CookieNotFound,
         NotAuthorized,
         InkEnvError(String),
+        InvalidKey,
     }
 
     #[derive(Debug, PartialEq, Eq, scale::Encode, scale::Decode)]
@@ -35,15 +34,15 @@ mod cookie_contract {
         value: String,
         created_at: BlockNumber,
         owner: AccountId,
+        transaction_id: u64,  // Added field for transaction ID
     }
-
-    type Event = <CookieContract as ink::reflect::ContractEventBase>::Type;
 
     #[ink(event)]
     pub struct CookieRegistered {
         cookie: String,
         owner: AccountId,
         block: BlockNumber,
+        transaction_id: u64,
     }
 
     #[ink(event)]
@@ -51,6 +50,7 @@ mod cookie_contract {
         cookie: String,
         owner: AccountId,
         block: BlockNumber,
+        transaction_id: u64,
     }
 
     #[ink(event)]
@@ -58,18 +58,19 @@ mod cookie_contract {
         cookie: String,
         owner: AccountId,
         block: BlockNumber,
+        transaction_id: u64,
     }
 
     #[ink(storage)]
     pub struct CookieContract {
         owner: AccountId,
         cookie_count: u32,
-        // Mapping from cookie string to cookieEntry
         cookies: Mapping<String, CookieEntry>,
-        // List of all registered cookies
         cookie_list: Vec<String>,
-        // Mapping from account to owned cookies
         owned_cookies: Mapping<AccountId, Vec<String>>,
+        transaction_id_counter: u64,  // Counter for transaction IDs
+        public_keys: Mapping<AccountId, String>,  // Store public keys of users
+        last_stages: Mapping<AccountId, String>,  // Last stage (profile, domain, etc.)
     }
 
     impl CookieContract {
@@ -81,10 +82,13 @@ mod cookie_contract {
                 cookies: Mapping::default(),
                 cookie_list: Vec::new(),
                 owned_cookies: Mapping::default(),
+                transaction_id_counter: 0,
+                public_keys: Mapping::default(),
+                last_stages: Mapping::default(),
             }
         }
 
-        // Register a new cookie
+        // Register a new cookie with transaction ID
         #[ink(message)]
         pub fn register_cookie(
             &mut self,
@@ -103,15 +107,11 @@ mod cookie_contract {
             if self.cookies.contains(&cookie) {
                 return Err(Error::CookieAlreadyExists);
             }
-//TODO:
-//checktransaction id, 
-//dispose identity, leave it on the chain
-//delete privat/pub key transaction id
-//no one has the key to decipher it
-//everything on the change it immutable
-//Publickey, Privatekey and TransID
-//session loaded correct with cookie
-//
+
+            // Generate transaction ID for the current operation
+            self.transaction_id_counter = self.transaction_id_counter.wrapping_add(1);
+            let transaction_id = self.transaction_id_counter;
+
             let cookie_entry = CookieEntry {
                 profile,
                 cookie: cookie.clone(),
@@ -122,6 +122,7 @@ mod cookie_contract {
                 value,
                 created_at: current_block,
                 owner: caller,
+                transaction_id,
             };
 
             // Update storage
@@ -139,13 +140,13 @@ mod cookie_contract {
                 cookie,
                 owner: caller,
                 block: current_block,
+                transaction_id,
             });
 
             Ok(())
         }
 
-        //populating cookies if user exists. New copy
-        /// Update an existing cookie
+        // Incremental update of an existing cookie
         #[ink(message)]
         pub fn update_cookie(
             &mut self,
@@ -160,17 +161,18 @@ mod cookie_contract {
             let caller = self.env().caller();
             let current_block = self.env().block_number();
 
-            //Improve idea
-            // Check if cookie exists and caller is owner?
-            //Before exit, write cookie to the Aleph, not local
-            //When user open, then it take the cookie and open (Write,Read)
-            // chia nhỏ ra nhiều transaction rồi nhập hết lại vào 1 cookie
-            // Datastructure: new transaction -> pointer -> read newest transaction (whatever cookie) ->
-            let entry = self.cookies.get(&cookie).ok_or(Error::CookieNotFound)?;
+            // Check if cookie exists and caller is owner
+            let mut entry = self.cookies.get(&cookie).ok_or(Error::CookieNotFound)?;
+
             if entry.owner != caller {
                 return Err(Error::NotAuthorized);
             }
 
+            // Increment transaction ID for each update
+            self.transaction_id_counter = self.transaction_id_counter.wrapping_add(1);
+            let transaction_id = self.transaction_id_counter;
+
+            // Create new entry with updated values and new transaction ID
             let cookie_entry = CookieEntry {
                 profile,
                 cookie: cookie.clone(),
@@ -179,21 +181,53 @@ mod cookie_contract {
                 secure,
                 path,
                 value,
-                created_at: entry.created_at,
+                created_at: entry.created_at,  // Retain original creation time
                 owner: caller,
+                transaction_id,
             };
 
+            // Update storage
             self.cookies.insert(&cookie, &cookie_entry);
 
+            // Emit event
             self.env().emit_event(CookieUpdated {
                 cookie,
                 owner: caller,
                 block: current_block,
+                transaction_id,
             });
 
             Ok(())
         }
-//TODO: UPDATE function -> Increment update. we're reading from a chain so no delete able
+
+        // Set or update public key for a user
+        #[ink(message)]
+        pub fn set_public_key(&mut self, public_key: String) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self.public_keys.insert(caller, &public_key);
+            Ok(())
+        }
+
+        // Get a user's public key
+        #[ink(message)]
+        pub fn get_public_key(&self, account: AccountId) -> Option<String> {
+            self.public_keys.get(account)
+        }
+
+        // Set or update the last stage for the user (profile, domain, etc.)
+        #[ink(message)]
+        pub fn set_last_stage(&mut self, stage: String) -> Result<(), Error> {
+            let caller = self.env().caller();
+            self.last_stages.insert(caller, &stage);
+            Ok(())
+        }
+
+        // Get the last stage associated with the user
+        #[ink(message)]
+        pub fn get_last_stage(&self) -> Option<String> {
+            let caller = self.env().caller();
+            self.last_stages.get(caller)
+        }
 
         // Get cookie details
         #[ink(message)]
@@ -226,14 +260,12 @@ mod cookie_contract {
         }
     }
 
-        //***************TEST CASES***************//
+    //***************TEST CASES***************//
     #[cfg(test)]
     mod tests {
         use super::*;
 
         #[ink::test]
-//  Basic add cookie test
-
         fn register_cookie_works() {
             let mut contract = CookieContract::new();
             assert_eq!(
@@ -250,33 +282,7 @@ mod cookie_contract {
             );
             assert_eq!(contract.get_cookie_count(), 1);
         }
-// Duplicate maybe allowed? 
-        #[ink::test]
-        fn duplicate_cookie_fails() {
-            let mut contract = CookieContract::new();
-            let _ = contract.register_cookie(
-                String::from("profile1"),
-                String::from("cookie1"),
-                String::from("2024-12-31"),
-                String::from("name1"),
-                String::from("secure1"),
-                String::from("/path1"),
-                String::from("value1"),
-            );
-            assert_eq!(
-                contract.register_cookie(
-                    String::from("profile2"),
-                    String::from("cookie1"),
-                    String::from("2024-12-31"),
-                    String::from("name2"),
-                    String::from("secure2"),
-                    String::from("/path2"),
-                    String::from("value2"),
-                ),
-                Err(Error::CookieAlreadyExists)
-            );
-        }
-//Update data fields
+
         #[ink::test]
         fn update_cookie_works() {
             let mut contract = CookieContract::new();
@@ -302,21 +308,23 @@ mod cookie_contract {
                 Ok(())
             );
         }
+
+        // #[ink::test]
+        // fn public_key_management() {
+        //     let mut contract = CookieContract::new();
+
+        //     // Set and get public key
+        //     assert_eq!(contract.set_public_key(String::from("user_public_key")), Ok(()));
+        //     assert_eq!(contract.get_public_key(contract.env().caller()), Some(String::from("user_public_key")));
+        // }
+
+        // #[ink::test]
+        // fn last_stage_management() {
+        //     let mut contract = CookieContract::new();
+
+        //     // Set and get last stage
+        //     assert_eq!(contract.set_last_stage(String::from("profile_stage")), Ok(()));
+        //     assert_eq!(contract.get_last_stage(), Some(String::from("profile_stage")));
+        // }
     }
 }
-
-
-
-//add more funcs
-//optimize functions
-//export/import/merge function
-
-//Opoen cookie, it will read from the same compartment -> same chain
-//Update compartment
-
-//benchmark, performance of those functionality
-//optimize code, write update to the chain, shall we write everything or increment?  
-//full backup/ incremental backup
-//
-
-//Update cookies

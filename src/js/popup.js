@@ -51,7 +51,7 @@ $(function(){
         chrome.storage.sync.get('Compartments', function(compartment){
             var compartment_array=[];
             compartment_array = compartment.Compartments;
-            
+             
             var select = document.getElementById("selected_compartment_to_add_profile");
             var options = select.options;
 
